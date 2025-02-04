@@ -8,18 +8,18 @@ import (
 )
 
 func SetupRouter() *gin.Engine {
-	router := gin.Default()
+    router := gin.Default()
 
-	router.NoRoute(func(c *gin.Context) {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "Page not found"})
-	})
+    router.NoRoute(func(c *gin.Context) {
+        c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "Page not found"})
+    })
 
-	router.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, "Router is working")
-	})
+    router.GET("/", func(c *gin.Context) {
+        c.JSON(http.StatusOK, "Router is working")
+    })
 
-	route := router.Group("/api/v1")
-	services.BaseStudentServices(route)
+    route := router.Group("/api/v1")
+    services.BaseStudentServices(route)
 
-	return router
+    return router
 }

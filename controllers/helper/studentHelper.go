@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"log"
 	"time"
 
 	"VincentLimarus/go-redis/configs"
@@ -27,29 +27,37 @@ func GetAllStudent() (int, interface{}) {
 
 	cacheKey := "students:all"
 	cachedStudents, err := redisClient.Get(ctx, cacheKey).Result()
+
 	if err == nil {
+		log.Println("Cache Hit!")
 		var students []database.Students
 		if jsonErr := json.Unmarshal([]byte(cachedStudents), &students); jsonErr == nil {
 			return 200, students
+		} else {
+			log.Printf("Cache unmarshal error: %v", jsonErr)
 		}
 	} else if err != redis.Nil {
-		return 500, gin.H{"message": "Redis error", "error": err.Error()}
+		log.Printf("Redis error: %v", err)
 	}
 
+	log.Println("Cache Miss!")
 	var students []database.Students
 	if result := db.Find(&students); result.Error != nil {
-		return 500, result.Error
+		return 500, gin.H{"message": "Database error", "error": result.Error.Error()}
 	}
 
-	studentData, _ := json.Marshal(students)
+	studentData, err := json.Marshal(students)
+	if err != nil {
+		log.Printf("JSON marshal error: %v", err)
+		return 500, gin.H{"message": "Internal server error"}
+	}
 
-	pipe := redisClient.Pipeline()
-	pipe.Set(ctx, cacheKey, studentData, 30*time.Minute)
-	pipe.Exec(ctx)
+	if err := redisClient.Set(ctx, cacheKey, studentData, 30*time.Minute).Err(); err != nil {
+		log.Printf("Redis set error: %v", err)
+	}
 
 	return 200, students
 }
-
 
 func GetStudent(studentID string) (int, interface{}) {
 	ctx := context.Background()
@@ -69,15 +77,23 @@ func GetStudent(studentID string) (int, interface{}) {
 	studentData, err := redisClient.HGetAll(ctx, cacheKey).Result()
 
 	if err != nil && err != redis.Nil {
-		fmt.Println("Redis error:", err) 
+		log.Printf("Redis error: %v", err)
 	} else if len(studentData) > 0 {
-		if studentData["id"] != "" && studentData["name"] != "" && studentData["email"] != "" {
-			student := database.Students{
-				ID:    uuid.MustParse(studentData["id"]),
-				Name:  studentData["name"],
-				Email: studentData["email"],
+		idStr := studentData["id"]
+		name := studentData["name"]
+		email := studentData["email"]
+
+		if idStr != "" && name != "" && email != "" {
+			id, parseErr := uuid.Parse(idStr)
+			if parseErr == nil {
+				student := database.Students{
+					ID:    id,
+					Name:  name,
+					Email: email,
+				}
+				return 200, student
 			}
-			return 200, student
+			log.Printf("Failed to parse cached UUID: %v", parseErr)
 		}
 	}
 
@@ -89,16 +105,18 @@ func GetStudent(studentID string) (int, interface{}) {
 		return 500, gin.H{"message": "Database error", "error": result.Error.Error()}
 	}
 
-	if redisClient != nil {
-		pipe := redisClient.Pipeline()
-		pipe.HMSet(ctx, cacheKey, map[string]interface{}{
-			"id":    student.ID.String(),
-			"name":  student.Name,
-			"email": student.Email,
-		})
-		pipe.Expire(ctx, cacheKey, 30*time.Minute)
-		_, _ = pipe.Exec(ctx)
+	pipe := redisClient.Pipeline()
+	pipe.HSet(ctx, cacheKey, map[string]interface{}{
+		"id":    student.ID.String(),
+		"name":  student.Name,
+		"email": student.Email,
+	})
+	pipe.Expire(ctx, cacheKey, 30*time.Minute)
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		log.Printf("Redis pipeline error: %v", err)
 	}
+
 
 	return 200, student
 }

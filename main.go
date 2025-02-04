@@ -4,13 +4,20 @@ import (
 	"VincentLimarus/go-redis/configs"
 	"VincentLimarus/go-redis/models/database"
 	"VincentLimarus/go-redis/routers"
+	"log"
 )
 
 func init() {
 	configs.LoadEnvironment()
-    configs.ConnectToDB()
-    configs.ConnectToRedis()
-    // configs.Faker()
+    if err := configs.ConnectToDB(); err != nil {
+        log.Fatalf("Error: %v", err)
+    }
+    
+    if err := configs.ConnectToRedis(); err != nil {
+        log.Fatalf("Error: %v", err)
+    }
+    
+    // configs.Faker() -> go run . -> uncomment this -> go run .
 }
 
 func main() {
